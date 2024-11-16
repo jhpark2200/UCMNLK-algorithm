@@ -5,14 +5,6 @@ from gurobipy import GRB
 from scipy.optimize import fmin_tnc
 from tqdm import tqdm
 
-# import os, sys
-# sys.path.append(r'C:\Users\uqpua\OneDrive\Desktop\UCRL-MNL')
-# sys.path.append(r'/Users/optalab/Documents/UCRL-MNL/')
-# print(os.getcwd())
-# print(sys.path)
-# print(os.listdir())
-# from env import *
-
 class UCMNLK:
     def __init__(self, env, c, gamma, N, eta, lam, T):
         self.env = env
@@ -31,32 +23,6 @@ class UCMNLK:
         # # reachable states
         self.reachable_states = {(s,a):{} for s in self.env.states.keys() for a in range(self.env.nAction)}
 
-        for a in range(self.env.nAction):
-            self.reachable_states[(0,a)] = {0, 1}
-            self.reachable_states[(1,a)] = {0, 1}
-            
-       # support state
-        self.support_states = {(s,a):list(self.reachable_states[(s,a)])[0] for s in self.env.states.keys() for a in range(self.env.nAction)}
-
-        # Initialize features
-        self.phi = self._initialize_phi()
-        self.psi = self._initialize_psi()
-        self.varphi = self._initialize_varphi()
-
-        # Initialize Q-values
-        self.Q = {(s,a): 0.0 for n in range(self.N) for s in self.env.states.keys() for a in range(self.env.nAction)}
-        # self.Q = {(h,s,a): 0,0 for h in range(self.env.epLen) for s in self.env.states.keys() for a in range(self.env.nAction)}
-
-        # Initialize model parameters
-        self.A = np.identity(self.d)
-        self.Ainv = np.linalg.inv(self.A)
-        self.lam = lam
-        self.theta = np.zeros(self.d)
-
-        # For MNL regression
-        self.mnl = OMD()
-        self.X = []
-        self.Y = []
 
     def _initialize_phi(self):
         phi = {(s,a): np.zeros(self.d1) for s in self.env.states.keys() for a in range(self.env.nAction)}
@@ -107,42 +73,19 @@ class UCMNLK:
 
             for s in self.env.states.keys():
                 for a in range(self.env.nAction):
-                    # p = cp.Variable(len(self.reachable_states[s,a]), nonneg=True)
-                    # objective = cp.Maximize(cp.sum(cp.multiply(p, [V_prev[s_next] for s_next in self.reachable_states[s,a]])))
-                    
+                   
                     comp = [np.exp(np.dot(self.varphi[(s,a,s_)], self.theta)) for s_ in self.reachable_states[(s,a)]]
                     p_hat = comp / np.sum(comp)
                 
                     sigma_norm = [np.sqrt(np.dot(np.dot(self.varphi[(s,a,s_)], self.Ainv), self.varphi[(s,a,s_)])) for s_ in self.reachable_states[(s,a)]] 
-                    # sigma_norm = [np.linalg.norm(np.dot(np.sqrt(self.Ainv), self.varphi[(s, a, s_)])) for s_ in self.reachable_states[(s, a)]]
-                    # R_t = max(1, 2*self.Beta(t_k)*np.max(sigma_norm))
-                    # R_t = min(R_t, len(self.reachable_states[(s,a)]))
                     tmp_norm = np.max(sigma_norm)
                     R_t = min(2*self.Beta(t_k) * tmp_norm, len(self.reachable_states[(s,a)]))
 
-                    # cp.sum([p[s_next] for s_next in self.reachable_states[(s,a)]]) == 1
-                    # constraints = [cp.sum([p[s_next] for s_next in range(len(self.reachable_states[(s,a)]))]) == 1,
-                    #                p >= 0,
-                    #                p <= 1,
-                    #                cp.sum([cp.abs(p[s_next] - p_hat[s_next]) for s_next in range(len(self.reachable_states[(s,a)]))]) <= R_t]
-                    # prob = cp.Problem(objective, constraints)
-                    # try:
-                    #     prob.solve()
-                    #     # print(prob.status, cp.OPTIMAL)
-                    #     if prob.status == cp.OPTIMAL:
-                    #         # Calculate Q-value
-                    #         Q[s, a] = self.env.R[s,a][0] + self.gamma * prob.value
-                    #         # print(f"s: {s}, a: {a}")
-                    #     else:
-                    #         print(f"Optimization failed for state {s}, action {a}. Status: {prob.status}")
-                    # except cp.error.SolverError:
-                    #     print(f"Solver error for state {s}, action {a}")
                     # Create a Gurobi model
                     model = gp.Model("DEVI_optimization")
                     model.Params.LogToConsole = 0
                     # model.setParam('OutputFlag', 0)  # Suppress Gurobi output
                     
-
                     # Create variables
                     p = model.addVars(self.env.nState, lb=0, ub=1, vtype=GRB.CONTINUOUS, name="p")
                     s_aux = model.addVars(len(self.reachable_states[(s,a)]), vtype=GRB.CONTINUOUS, name='auxiliary var') # Auxiliary variable
@@ -229,15 +172,6 @@ class UCMNLK:
             s = self.env.state
             a = self.act(s)
 
-            # prob_tmp = {}
-            # for i in self.env.states.keys():
-            #     if i in self.reachable_states[s,a]:
-            #         prob_tmp[i] = np.exp(np.dot(self.varphi[(s,a,i)], self.theta))
-            # sum_tmp = sum(prob_tmp.values())
-            # for key, value in prob_tmp.items():
-            #     self.env.P[s, a][key] = value / sum_tmp
-            # print(s, a, self.env.P[s, a])
-            
             r, s_= self.env.advance(a)
             R += r
             # print(f't: {t}, R: {R}, s: {s}, a: {a}')
@@ -257,7 +191,6 @@ class UCMNLK:
             self.update_gram_matrix(X)
 
             episode_return.append(r)
-        # episode_return.append(R)
 
         return episode_return
 
@@ -266,48 +199,15 @@ class OMD:
     #     self.initial_theta = theta
 
     def compute_prob(self, theta, x):  # l_t (theta)
-        probs = []
-        for i in range(len(x)):
-            means = np.dot(x[i], theta)
-            u = np.exp(means)
-            logSumExp = u.sum()
-            prob = u/logSumExp
-            probs.append(prob)
+
         return probs
 
     def cost_function(self, theta, x, y, eta, Ainv, A):
-        m = len(x)
-        prob = self.compute_prob(theta, x)
-        eps = [prob[i] - y[i] for i in range(len(prob))]
-        
-        grad = np.zeros(len(theta))
-        for i in range(len(eps)):
-            for j in range(len(eps[i])):
-                grad += eps[i][j] * x[i][j]                
-        grad = (1/m)*grad 
-        # theta_prime = theta - eta * Ainv * grad
-        theta_prime = theta - eta * np.dot(Ainv, grad)
 
-        # return np.sqrt( np.dot( np.dot((theta - theta_prime), A), (theta - theta_prime)))
         return np.dot( np.dot((theta - theta_prime), A), (theta - theta_prime))
 
     def gradient(self, theta, x, y, eta, Ainv, A):  # 비용함수의 그래디언트
-        m = len(x)
-        prob = self.compute_prob(theta, x)
-        eps = [prob[i] - y[i] for i in range(len(prob))]
-        
-        grad = np.zeros(len(theta))
-        for i in range(len(eps)):
-            for j in range(len(eps[i])):
-                grad += eps[i][j] * x[i][j]                
-        grad = (1/m)*grad
-        theta_prime = theta - eta * np.dot(Ainv, grad)
-        # theta_prime = theta - eta * Ainv * grad
-        # return np.sqrt( np.dot( np.dot((theta - theta_prime), A), (theta - theta_prime)))
-        return np.dot(A, (theta - theta_prime))
+        return
 
     def fit(self, x, y, theta, eta, Ainv, A):
-        # initial_theta = theta
-        opt_weights = fmin_tnc(func=self.cost_function, x0=theta, fprime=self.gradient, messages=0, args=(x, y, eta, A, Ainv))
-        self.w = opt_weights[0]
         return self
